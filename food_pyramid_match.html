@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Food Pyramid Match</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Comic+Neue:wght@700&display=swap');
+
+        body {
+            font-family: 'Comic Neue', cursive, sans-serif;
+            background-color: #f0fdf4;
+            background-image: radial-gradient(#bbf7d0 2px, transparent 2px);
+            background-size: 30px 30px;
+            overflow-x: hidden;
+        }
+
+        .game-item {
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            user-select: none;
+        }
+
+        .game-item:active:not(.matched) {
+            transform: scale(0.95);
+        }
+
+        .selected {
+            border: 4px dashed #3b82f6 !important; /* Blue dashed border for selection */
+            background-color: #bfdbfe !important;
+            transform: scale(1.02);
+        }
+
+        .drag-over {
+            border: 4px dashed #22c55e !important;
+            background-color: #dcfce7 !important;
+            transform: scale(1.05);
+        }
+
+        .matched {
+            background-color: #4ade80 !important;
+            color: #14532d !important;
+            border: 4px solid #22c55e !important;
+            opacity: 0.8;
+            cursor: default;
+            transform: scale(0.98);
+        }
+
+        .wrong {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+            background-color: #f87171 !important;
+            color: white !important;
+            border-color: #dc2626 !important;
+        }
+
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+
+        .pop-in {
+            animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        @keyframes popIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .score-anim {
+            animation: floatUp 1s ease-out forwards;
+        }
+
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0) scale(1.5); }
+            100% { opacity: 0; transform: translateY(-40px) scale(2); }
+        }
+
+        /* Leaderboard styling */
+        .rank-1 { background-color: #fef08a; border-color: #eab308; }
+        .rank-2 { background-color: #e5e7eb; border-color: #9ca3af; }
+        .rank-3 { background-color: #ffedd5; border-color: #f97316; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center py-6 px-4">
+
+    <!-- Fixed Leaderboard Button -->
+    <button id="viewLeaderboardBtn" class="fixed bottom-4 right-4 bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-6 rounded-full shadow-2xl border-4 border-purple-700 z-40 transition transform hover:scale-105">
+        🏆 Leaderboard
+    </button>
+
+    <!-- Main Game Container -->
+    <div id="gameContainer" class="hidden max-w-5xl w-full bg-white rounded-3xl shadow-2xl p-6 md:p-8 border-8 border-green-400 relative">
+        
+        <!-- Header & Score -->
+        <div class="flex flex-col md:flex-row justify-between items-center mb-6">
+            <h1 class="text-3xl md:text-4xl font-bold text-green-600">🍎 Food Pyramid Match! 🥦</h1>
+            <div class="mt-4 md:mt-0 bg-blue-100 border-4 border-blue-400 rounded-2xl px-6 py-2 relative flex items-center justify-center">
+                <span class="text-2xl font-bold text-blue-800">Score: <span id="scoreDisplay">0</span></span>
+                <span id="scoreFloating" class="absolute font-bold text-green-500 opacity-0 pointer-events-none" style="right: -40px; top: -10px; font-size: 1.8rem; text-shadow: 1px 1px 2px white;">+10</span>
+            </div>
+        </div>
+
+        <h2 id="levelTitleUI" class="text-2xl md:text-3xl font-bold text-center text-blue-600 mb-2">Level 1</h2>
+        <p class="text-center text-lg md:text-xl text-gray-600 mb-6 bg-yellow-100 py-2 rounded-lg border-2 border-yellow-300">
+            👆 <b>Instructions:</b> Drag a Food Group to its match, or click one then the other!
+        </p>
+
+        <!-- Win Message Container -->
+        <div id="winMessage" class="hidden pop-in bg-yellow-300 border-4 border-yellow-500 rounded-xl p-6 text-center mb-8 shadow-lg">
+            <h2 id="winTitle" class="text-3xl font-bold text-yellow-800 mb-2">🎉 Level Complete! 🎉</h2>
+            <button id="nextLevelBtn" class="bg-blue-500 hover:bg-blue-600 text-white text-xl font-bold py-3 px-8 rounded-full shadow-md border-4 border-blue-700 transition transform hover:-translate-y-1">
+                ➡️ Next Level
+            </button>
+        </div>
+
+        <!-- Playing Area -->
+        <div id="boardArea" class="flex flex-col md:flex-row gap-6 justify-between relative">
+            <!-- Left Column: Draggables (Food Groups) -->
+            <div class="w-full md:w-1/2">
+                <h3 class="text-2xl font-bold text-blue-500 mb-4 text-center bg-blue-50 rounded-full py-2 border-2 border-blue-200">Food Groups</h3>
+                <div id="left-column" class="flex flex-col gap-3"></div>
+            </div>
+
+            <!-- Right Column: Drop Targets (Facts) -->
+            <div class="w-full md:w-1/2">
+                <h3 class="text-2xl font-bold text-purple-500 mb-4 text-center bg-purple-50 rounded-full py-2 border-2 border-purple-200">Matches</h3>
+                <div id="right-column" class="flex flex-col gap-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+
+    <!-- 1. Game Intro Modal -->
+    <div id="gameIntroModal" class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 px-4">
+        <div class="pop-in bg-white p-8 rounded-3xl shadow-2xl max-w-xl w-full text-center border-8 border-green-500">
+            <h2 class="text-4xl font-bold text-green-600 mb-6">Welcome! 👋</h2>
+            <p class="text-2xl text-gray-700 mb-8 leading-relaxed font-medium">
+                This game gives you some ideas on balanced eating. The pamphlet in Book 5A P.58-59 may help you finish the game. Good luck!
+            </p>
+            <button id="startGameBtn" class="w-full bg-green-500 text-white text-3xl font-bold py-4 rounded-full shadow-lg border-4 border-green-700 hover:bg-green-600 transition transform hover:-translate-y-1">
+                ▶️ Start Game
+            </button>
+        </div>
+    </div>
+
+    <!-- 2. Level Intro Modal -->
+    <div id="levelIntroModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 px-4">
+        <div class="pop-in bg-white p-8 rounded-3xl shadow-2xl max-w-lg w-full text-center border-8 border-blue-500">
+            <h2 id="levelIntroTitle" class="text-4xl font-bold text-blue-600 mb-4">Level 1</h2>
+            <p id="levelIntroText" class="text-2xl text-gray-700 mb-8 leading-relaxed font-medium"></p>
+            <button id="startLevelTimerBtn" class="w-full bg-blue-500 text-white text-3xl font-bold py-4 rounded-full shadow-lg border-4 border-blue-700 hover:bg-blue-600 transition transform hover:-translate-y-1 hover:scale-105">
+                🚀 Go!
+            </button>
+        </div>
+    </div>
+
+    <!-- 3. Name Input Modal (High Score) -->
+    <div id="nameModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 px-4">
+        <div class="pop-in bg-white p-8 rounded-3xl shadow-2xl max-w-md w-full text-center border-8 border-yellow-400">
+            <h2 class="text-4xl font-bold text-yellow-500 mb-2">New High Score!</h2>
+            <p class="text-xl text-gray-700 mb-6">You made it to the Top 10! Enter your name:</p>
+            <input type="text" id="playerNameInput" placeholder="Your Name" class="w-full text-2xl p-4 border-4 border-blue-300 rounded-2xl mb-6 text-center focus:outline-none focus:border-blue-500 font-bold text-blue-700" maxlength="15">
+            <button id="submitNameBtn" class="w-full bg-blue-500 text-white text-2xl font-bold py-3 rounded-full shadow-lg border-4 border-blue-700 hover:bg-blue-600 transition transform hover:-translate-y-1">
+                Save Score
+            </button>
+        </div>
+    </div>
+
+    <!-- 4. Full Leaderboard Container (End of Game) -->
+    <div id="leaderboardContainer" class="hidden max-w-4xl w-full bg-white rounded-3xl shadow-2xl p-6 md:p-10 border-8 border-purple-400">
+        <h1 class="text-4xl md:text-5xl font-bold text-center text-purple-600 mb-4">🏆 Top 10 Healthy Eaters 🏆</h1>
+        <p class="text-center text-2xl font-bold text-gray-700 mb-8">Your Final Score: <span id="finalScoreDisplay" class="text-green-600">0</span></p>
+
+        <div id="leaderboardLoading" class="text-center text-xl text-gray-500 my-8">Loading scores...</div>
+        <div id="leaderboardList" class="hidden flex flex-col gap-3 mb-8"></div>
+
+        <div class="flex justify-center">
+            <button id="playAgainBtn" class="bg-green-500 hover:bg-green-600 text-white text-2xl font-bold py-4 px-10 rounded-full shadow-lg border-4 border-green-700 transition transform hover:-translate-y-1">
+                🔄 Play Again!
+            </button>
+        </div>
+    </div>
+
+    <!-- 5. View Leaderboard Modal (Mid-game) -->
+    <div id="viewLeaderboardModal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 px-4">
+        <div class="pop-in bg-white p-6 md:p-8 rounded-3xl shadow-2xl max-w-2xl w-full border-8 border-purple-400 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl md:text-4xl font-bold text-purple-600">🏆 Leaderboard</h2>
+                <button id="closeLeaderboardBtn" class="text-gray-500 hover:text-red-500 font-bold text-3xl transition transform hover:scale-110">❌</button>
+            </div>
+            <div id="viewLeaderboardLoading" class="text-center text-xl text-gray-500 my-8">Loading scores...</div>
+            <div id="viewLeaderboardList" class="hidden flex flex-col gap-3 mb-4"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Firebase Setup (Strict paths and rules applied)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'food-pyramid-match';
+        const fbConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        let db = null, auth = null, user = null, firebaseReady = false;
+
+        async function initFirebase() {
+            if (!fbConfig) {
+                console.warn("No Firebase config. Running in offline mode.");
+                return false;
+            }
+            try {
+                const app = initializeApp(fbConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (token) await signInWithCustomToken(auth, token);
+                else await signInAnonymously(auth);
+                user = auth.currentUser;
+                return true;
+            } catch (error) {
+                console.error("Firebase init error:", error);
+                return false;
+            }
+        }
+
+        // --- Audio Setup (Tone.js) ---
+        const synth = new Tone.PolySynth(Tone.Synth).toDestination();
+        function checkAudio() { if (Tone.context.state !== 'running') Tone.start(); }
+        
+        function playDing() {
+            checkAudio();
+            synth.triggerAttackRelease(["C5", "E5", "G5"], "8n", Tone.now(), 0.2);
+        }
+        function playBuzzer() {
+            checkAudio();
+            synth.triggerAttackRelease(["C3", "D#3"], "8n", Tone.now(), 0.2);
+        }
+        function playLevelStart() {
+            checkAudio();
+            const now = Tone.now();
+            synth.triggerAttackRelease("C5", "8n", now, 0.2);
+            synth.triggerAttackRelease("E5", "8n", now + 0.15, 0.2);
+            synth.triggerAttackRelease("G5", "4n", now + 0.3, 0.2);
+        }
+        function playLevelComplete() {
+            checkAudio();
+            const now = Tone.now();
+            synth.triggerAttackRelease("G4", "8n", now, 0.2);
+            synth.triggerAttackRelease("C5", "8n", now + 0.15, 0.2);
+            synth.triggerAttackRelease("E5", "8n", now + 0.3, 0.2);
+            synth.triggerAttackRelease("G5", "2n", now + 0.45, 0.2);
+        }
+
+        // --- Game Data ---
+        const levelData = [
+            {
+                // Level 1
+                title: "Level 1: Food Examples",
+                introText: "Match the food with the corresponding food group",
+                pairs: [
+                    { id: 'grains', left: 'Grains 🌾', right: 'pasta, bread, rice' },
+                    { id: 'fruit', left: 'Fruit 🍎', right: 'grapes, cherries, papayas' },
+                    { id: 'veg', left: 'Vegetables 🥦', right: 'corn, lettuce, pumpkins' },
+                    { id: 'meat', left: 'Meat and fish 🥩🐟', right: 'beef, pork, salmon' },
+                    { id: 'dairy', left: 'Dairy products 🥛🧀', right: 'milk, yoghurt, cheese' },
+                    { id: 'oil', left: 'Oil, salt and sugar 🧂🍬', right: 'butter, soy sauce, sweets' }
+                ]
+            },
+            {
+                // Level 2
+                title: "Level 2: Servings",
+                introText: "How much do we need everyday? Match the recommended serving with food group.",
+                pairs: [
+                    { id: 'grains', left: 'Grains 🌾', right: '3-4 servings per day' },
+                    { id: 'veg', left: 'Vegetables 🥦', right: 'At least 2 servings per day' },
+                    { id: 'fruit', left: 'Fruit 🍎', right: '2 servings per day' },
+                    { id: 'meat', left: 'Meat and fish 🥩🐟', right: '3-5 servings per day' },
+                    { id: 'dairy', left: 'Dairy products 🥛🧀', right: '2 servings per day (Hints: 1 serving = 1 glass)' },
+                    { id: 'oil', left: 'Oil, salt and sugar 🧂🍬', right: 'A little' }
+                ]
+            },
+            {
+                // Level 3
+                title: "Level 3: Health Benefits",
+                introText: "How do different food group help us?",
+                pairs: [
+                    { id: 'grains', left: 'Grains 🌾', right: 'Give us energy' },
+                    { id: 'fruitveg', left: 'Fruit and vegetables 🍎🥦', right: 'Help us stay healthy (provide vitamins and minerals)' },
+                    { id: 'meat', left: 'Meat and fish 🥩🐟', right: 'Help us grow strong' },
+                    { id: 'dairy', left: 'Dairy products 🥛🧀', right: 'Help keep our teeth and bones strong' },
+                    { id: 'oil', left: 'Oil, salt and sugar 🧂🍬', right: 'Bad for our health and may make us gain weight' }
+                ]
+            }
+        ];
+
+        // --- Colors mapping for consistency ---
+        const colors = {
+            'grains': { bg: 'bg-blue-100', border: 'border-blue-400', text: 'text-blue-900' },
+            'veg': { bg: 'bg-green-100', border: 'border-green-400', text: 'text-green-900' },
+            'fruit': { bg: 'bg-purple-100', border: 'border-purple-400', text: 'text-purple-900' },
+            'meat': { bg: 'bg-pink-100', border: 'border-pink-400', text: 'text-pink-900' },
+            'dairy': { bg: 'bg-orange-100', border: 'border-orange-400', text: 'text-orange-900' },
+            'oil': { bg: 'bg-yellow-100', border: 'border-yellow-400', text: 'text-yellow-900' },
+            'fruitveg': { bg: 'bg-indigo-100', border: 'border-indigo-400', text: 'text-indigo-900' },
+            'defaultRight': { bg: 'bg-gray-50', border: 'border-gray-300', text: 'text-gray-800' }
+        };
+
+        // --- Game State ---
+        let currentLevelIndex = 0;
+        let totalScore = 0;
+        let lastMatchTime = 0;
+        let matchesCount = 0;
+        let selectedLeftEl = null; // For click-to-match fallback
+        let leaderboardData = [];
+
+        // --- DOM Elements ---
+        const D = {
+            gameIntroModal: document.getElementById('gameIntroModal'),
+            startGameBtn: document.getElementById('startGameBtn'),
+            levelIntroModal: document.getElementById('levelIntroModal'),
+            levelIntroTitle: document.getElementById('levelIntroTitle'),
+            levelIntroText: document.getElementById('levelIntroText'),
+            startLevelTimerBtn: document.getElementById('startLevelTimerBtn'),
+            gameContainer: document.getElementById('gameContainer'),
+            levelTitleUI: document.getElementById('levelTitleUI'),
+            scoreDisplay: document.getElementById('scoreDisplay'),
+            scoreFloating: document.getElementById('scoreFloating'),
+            leftColumn: document.getElementById('left-column'),
+            rightColumn: document.getElementById('right-column'),
+            boardArea: document.getElementById('boardArea'),
+            winMessage: document.getElementById('winMessage'),
+            winTitle: document.getElementById('winTitle'),
+            nextLevelBtn: document.getElementById('nextLevelBtn'),
+            leaderboardContainer: document.getElementById('leaderboardContainer'),
+            finalScoreDisplay: document.getElementById('finalScoreDisplay'),
+            leaderboardLoading: document.getElementById('leaderboardLoading'),
+            leaderboardList: document.getElementById('leaderboardList'),
+            nameModal: document.getElementById('nameModal'),
+            playerNameInput: document.getElementById('playerNameInput'),
+            submitNameBtn: document.getElementById('submitNameBtn'),
+            playAgainBtn: document.getElementById('playAgainBtn'),
+            viewLeaderboardBtn: document.getElementById('viewLeaderboardBtn'),
+            viewLeaderboardModal: document.getElementById('viewLeaderboardModal'),
+            closeLeaderboardBtn: document.getElementById('closeLeaderboardBtn'),
+            viewLeaderboardLoading: document.getElementById('viewLeaderboardLoading'),
+            viewLeaderboardList: document.getElementById('viewLeaderboardList')
+        };
+
+        function shuffle(arr) {
+            let a = [...arr];
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        }
+
+        // --- Core Flow ---
+
+        D.startGameBtn.addEventListener('click', async () => {
+            await Tone.start();
+            D.gameIntroModal.classList.add('hidden');
+            D.gameContainer.classList.remove('hidden');
+            totalScore = 0;
+            currentLevelIndex = 0;
+            updateScoreUI(0, false);
+            prepareLevel();
+        });
+
+        function prepareLevel() {
+            D.boardArea.classList.remove('hidden');
+            D.winMessage.classList.add('hidden');
+            D.winMessage.classList.remove('pop-in');
+            selectedLeftEl = null;
+            matchesCount = 0;
+
+            const lvl = levelData[currentLevelIndex];
+            
+            // Build UI internally first
+            D.levelTitleUI.innerText = lvl.title;
+            renderBoard(lvl.pairs);
+
+            // Show Level Intro Modal
+            D.levelIntroTitle.innerText = `Level ${currentLevelIndex + 1}`;
+            D.levelIntroText.innerText = lvl.introText;
+            D.levelIntroModal.classList.remove('hidden');
+        }
+
+        D.startLevelTimerBtn.addEventListener('click', () => {
+            checkAudio();
+            playLevelStart();
+            D.levelIntroModal.classList.add('hidden');
+            // Timer explicitly starts here!
+            lastMatchTime = Date.now(); 
+        });
+
+        function renderBoard(pairs) {
+            D.leftColumn.innerHTML = '';
+            D.rightColumn.innerHTML = '';
+
+            // Render Left (Draggables)
+            pairs.forEach(pair => {
+                const c = colors[pair.id] || colors.defaultRight;
+                const el = document.createElement('div');
+                el.className = `game-item cursor-pointer p-4 rounded-xl border-4 font-bold text-lg md:text-xl text-center ${c.bg} ${c.border} ${c.text}`;
+                el.innerText = pair.left;
+                el.dataset.id = pair.id;
+                el.dataset.side = 'left';
+                el.draggable = true;
+                
+                // Drag Events
+                el.addEventListener('dragstart', handleDragStart);
+                el.addEventListener('dragend', handleDragEnd);
+                
+                // Click Event (Fallback)
+                el.addEventListener('click', () => handleLeftClick(el));
+                
+                D.leftColumn.appendChild(el);
+            });
+
+            // Render Right (Drop Zones)
+            const shuffled = shuffle(pairs);
+            shuffled.forEach(pair => {
+                const el = document.createElement('div');
+                const c = colors.defaultRight;
+                el.className = `game-item cursor-pointer p-4 rounded-xl border-4 font-bold text-lg md:text-xl text-center flex items-center justify-center min-h-[4rem] ${c.bg} ${c.border} ${c.text}`;
+                el.innerText = pair.right;
+                el.dataset.id = pair.id;
+                el.dataset.side = 'right';
+
+                // Drop Events
+                el.addEventListener('dragover', handleDragOver);
+                el.addEventListener('dragleave', handleDragLeave);
+                el.addEventListener('drop', handleDrop);
+
+                // Click Event (Fallback)
+                el.addEventListener('click', () => handleRightClick(el));
+
+                D.rightColumn.appendChild(el);
+            });
+        }
+
+        // --- Drag & Drop Handlers ---
+        function handleDragStart(e) {
+            if (this.classList.contains('matched')) {
+                e.preventDefault();
+                return;
+            }
+            e.dataTransfer.setData('text/plain', this.dataset.id);
+            this.style.opacity = '0.5';
+            
+            // Sync with click state
+            if (selectedLeftEl && selectedLeftEl !== this) {
+                selectedLeftEl.classList.remove('selected');
+            }
+            selectedLeftEl = this;
+            this.classList.add('selected');
+        }
+
+        function handleDragEnd(e) {
+            this.style.opacity = '1';
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault(); // Necessary to allow dropping
+            if (this.classList.contains('matched')) return;
+            this.classList.add('drag-over');
+        }
+
+        function handleDragLeave(e) {
+            this.classList.remove('drag-over');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            this.classList.remove('drag-over');
+            if (this.classList.contains('matched')) return;
+
+            const draggedId = e.dataTransfer.getData('text/plain');
+            const targetId = this.dataset.id;
+            
+            // Find the left element that was dragged
+            const leftEl = Array.from(D.leftColumn.children).find(el => el.dataset.id === draggedId);
+            
+            if (leftEl) {
+                processMatchAttempt(leftEl, this, draggedId, targetId);
+            }
+        }
+
+        // --- Click Handlers (Fallback for Touch/Mobile) ---
+        function handleLeftClick(el) {
+            if (el.classList.contains('matched')) return;
+            
+            if (selectedLeftEl) selectedLeftEl.classList.remove('selected');
+            selectedLeftEl = el;
+            selectedLeftEl.classList.add('selected');
+        }
+
+        function handleRightClick(rightEl) {
+            if (rightEl.classList.contains('matched') || !selectedLeftEl) return;
+            
+            const leftId = selectedLeftEl.dataset.id;
+            const rightId = rightEl.dataset.id;
+            
+            processMatchAttempt(selectedLeftEl, rightEl, leftId, rightId);
+        }
+
+        // --- Core Match Logic ---
+        function processMatchAttempt(leftEl, rightEl, leftId, rightId) {
+            const now = Date.now();
+            const elapsedSecs = (now - lastMatchTime) / 1000;
+
+            if (leftId === rightId) {
+                // Correct Match
+                playDing();
+                
+                // Score Logic: 10 base. -1 per extra 2s over the initial 2s. Min 1.
+                let points = 10;
+                if (elapsedSecs > 2) {
+                    const penalty = Math.floor((elapsedSecs - 2) / 2);
+                    points -= penalty;
+                }
+                points = Math.max(1, points);
+                
+                totalScore += points;
+                updateScoreUI(points, true);
+
+                // Styling
+                leftEl.classList.remove('selected');
+                leftEl.classList.add('matched');
+                leftEl.draggable = false;
+                
+                rightEl.classList.add('matched');
+                
+                // Inherit color for right item visually
+                const c = colors[leftId] || colors.defaultRight;
+                rightEl.className = `game-item p-4 rounded-xl border-4 font-bold text-lg md:text-xl text-center min-h-[4rem] matched ${c.bg} ${c.border} ${c.text}`;
+
+                matchesCount++;
+                selectedLeftEl = null;
+                lastMatchTime = now; // Reset timer for next match
+
+                if (matchesCount === levelData[currentLevelIndex].pairs.length) {
+                    endLevel();
+                }
+
+            } else {
+                // Wrong Match
+                playBuzzer();
+                leftEl.classList.remove('selected');
+                
+                leftEl.classList.add('wrong');
+                rightEl.classList.add('wrong');
+                
+                setTimeout(() => {
+                    leftEl.classList.remove('wrong');
+                    rightEl.classList.remove('wrong');
+                }, 500);
+                
+                selectedLeftEl = null;
+            }
+        }
+
+        function updateScoreUI(pointsAdded, showAnim) {
+            D.scoreDisplay.innerText = totalScore;
+            if (showAnim && pointsAdded > 0) {
+                D.scoreFloating.innerText = `+${pointsAdded}`;
+                D.scoreFloating.classList.remove('score-anim');
+                void D.scoreFloating.offsetWidth; // Reflow
+                D.scoreFloating.classList.add('score-anim');
+            }
+        }
+
+        function endLevel() {
+            playLevelComplete();
+            setTimeout(() => {
+                D.boardArea.classList.add('hidden');
+                D.winMessage.classList.remove('hidden');
+                D.winMessage.classList.add('pop-in');
+
+                if (currentLevelIndex < levelData.length - 1) {
+                    D.winTitle.innerText = "🎉 Level Complete! 🎉";
+                    D.nextLevelBtn.innerHTML = "➡️ Next Level";
+                } else {
+                    D.winTitle.innerText = "🏆 Game Finished! 🏆";
+                    D.nextLevelBtn.innerHTML = "📊 View Leaderboard";
+                }
+            }, 600);
+        }
+
+        D.nextLevelBtn.addEventListener('click', () => {
+            if (currentLevelIndex < levelData.length - 1) {
+                currentLevelIndex++;
+                prepareLevel();
+            } else {
+                finishGame();
+            }
+        });
+
+        // --- Leaderboard & End Game Flow ---
+        async function finishGame() {
+            D.gameContainer.classList.add('hidden');
+            D.leaderboardContainer.classList.remove('hidden');
+            D.finalScoreDisplay.innerText = totalScore;
+            
+            if (!firebaseReady || !user) {
+                showLeaderboardError("Offline mode. Scores not saved.");
+                return;
+            }
+
+            try {
+                // RULE 2: No complex queries.
+                const collRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+                const snapshot = await getDocs(collRef);
+                
+                let allScores = [];
+                snapshot.forEach(doc => allScores.push({ id: doc.id, ...doc.data() }));
+                
+                allScores.sort((a, b) => b.score - a.score || a.timestamp - b.timestamp);
+                leaderboardData = allScores.slice(0, 10);
+                
+                // Check if Top 10
+                const isTop10 = leaderboardData.length < 10 || totalScore > leaderboardData[leaderboardData.length - 1].score;
+                
+                if (isTop10 && totalScore > 0) {
+                    D.nameModal.classList.remove('hidden');
+                    D.playerNameInput.focus();
+                } else {
+                    renderMainLeaderboard();
+                }
+            } catch (err) {
+                console.error(err);
+                showLeaderboardError("Could not load leaderboard.");
+            }
+        }
+
+        D.submitNameBtn.addEventListener('click', submitScore);
+        D.playerNameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') submitScore();
+        });
+
+        async function submitScore() {
+            const name = D.playerNameInput.value.trim() || "Healthy Eater";
+            D.nameModal.classList.add('hidden');
+            D.leaderboardLoading.classList.remove('hidden');
+            D.leaderboardList.classList.add('hidden');
+
+            try {
+                const collRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+                await addDoc(collRef, {
+                    name: name,
+                    score: totalScore,
+                    timestamp: Date.now()
+                });
+                
+                // Re-fetch to show updated list
+                const snapshot = await getDocs(collRef);
+                let allScores = [];
+                snapshot.forEach(doc => allScores.push({ id: doc.id, ...doc.data() }));
+                allScores.sort((a, b) => b.score - a.score || a.timestamp - b.timestamp);
+                leaderboardData = allScores.slice(0, 10);
+                
+                renderMainLeaderboard();
+            } catch (err) {
+                console.error("Save error:", err);
+                renderMainLeaderboard();
+            }
+        }
+
+        function renderMainLeaderboard() {
+            D.leaderboardLoading.classList.add('hidden');
+            D.leaderboardList.innerHTML = '';
+            
+            if (leaderboardData.length === 0) {
+                D.leaderboardList.innerHTML = '<p class="text-center text-xl text-gray-500">No scores yet. You are the first!</p>';
+            } else {
+                leaderboardData.forEach((entry, index) => {
+                    const row = buildLeaderboardRow(entry, index);
+                    D.leaderboardList.appendChild(row);
+                });
+            }
+            D.leaderboardList.classList.remove('hidden');
+        }
+
+        function buildLeaderboardRow(entry, index) {
+            const row = document.createElement('div');
+            let rankClass = "bg-gray-50 border-gray-200";
+            let trophy = `<span class="text-gray-500 w-8 inline-block text-center">${index + 1}.</span>`;
+            
+            if (index === 0) { rankClass = "rank-1"; trophy = "🥇"; }
+            else if (index === 1) { rankClass = "rank-2"; trophy = "🥈"; }
+            else if (index === 2) { rankClass = "rank-3"; trophy = "🥉"; }
+
+            row.className = `flex justify-between items-center p-4 border-2 rounded-xl text-xl font-bold ${rankClass}`;
+            row.innerHTML = `
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">${trophy}</span>
+                    <span class="text-gray-800">${escapeHtml(entry.name)}</span>
+                </div>
+                <div class="text-green-600 bg-white px-4 py-1 rounded-lg border-2 border-green-200 shadow-sm">${entry.score} pts</div>
+            `;
+            return row;
+        }
+
+        function showLeaderboardError(msg) {
+            D.leaderboardLoading.classList.add('hidden');
+            D.leaderboardList.innerHTML = `<p class="text-center text-xl text-red-500">${msg}</p>`;
+            D.leaderboardList.classList.remove('hidden');
+        }
+
+        // --- Persistent View Leaderboard ---
+        D.viewLeaderboardBtn.addEventListener('click', async () => {
+            D.viewLeaderboardModal.classList.remove('hidden');
+            D.viewLeaderboardLoading.classList.remove('hidden');
+            D.viewLeaderboardList.classList.add('hidden');
+            
+            if (!firebaseReady) {
+                D.viewLeaderboardLoading.innerText = "Offline mode. Cannot load scores.";
+                return;
+            }
+
+            try {
+                const collRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+                const snapshot = await getDocs(collRef);
+                let allScores = [];
+                snapshot.forEach(doc => allScores.push({ id: doc.id, ...doc.data() }));
+                allScores.sort((a, b) => b.score - a.score || a.timestamp - b.timestamp);
+                const top10 = allScores.slice(0, 10);
+                
+                D.viewLeaderboardList.innerHTML = '';
+                if (top10.length === 0) {
+                    D.viewLeaderboardList.innerHTML = '<p class="text-center text-xl text-gray-500">No scores yet.</p>';
+                } else {
+                    top10.forEach((entry, index) => {
+                        D.viewLeaderboardList.appendChild(buildLeaderboardRow(entry, index));
+                    });
+                }
+                D.viewLeaderboardLoading.classList.add('hidden');
+                D.viewLeaderboardList.classList.remove('hidden');
+            } catch (err) {
+                D.viewLeaderboardLoading.innerText = "Error loading scores.";
+            }
+        });
+
+        D.closeLeaderboardBtn.addEventListener('click', () => {
+            D.viewLeaderboardModal.classList.add('hidden');
+        });
+
+        D.playAgainBtn.addEventListener('click', () => {
+            D.leaderboardContainer.classList.add('hidden');
+            D.gameIntroModal.classList.remove('hidden');
+        });
+
+        function escapeHtml(str) {
+            return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]);
+        }
+
+        // --- Init ---
+        async function boot() {
+            firebaseReady = await initFirebase();
+            // Show intro modal automatically on load
+            D.gameIntroModal.classList.remove('hidden');
+        }
+
+        window.onload = boot;
+
+    </script>
+</body>
+</html>
